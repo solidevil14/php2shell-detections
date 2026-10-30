@@ -16,7 +16,9 @@ Outputs: attack.pcap (exploit traffic) + benign.pcap (FPS regression set)
 import os
 import sys
 
-REPO = os.path.expanduser("~/php2shell-lab/php2shell")
+REPO = os.environ.get("P2S_REPO",
+                      os.path.join(os.path.dirname(
+                          os.path.dirname(os.path.abspath(__file__))), "php2shell"))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
