@@ -29,6 +29,7 @@ jobs:
           ./configure --prefix=/usr/local --disable-gccmarch-native > /dev/null
           make -j"$(nproc)" > /dev/null
           sudo make install-full > /dev/null
+          sudo chmod -R a+rX /usr/local/etc/suricata
           sudo ldconfig
           /usr/local/bin/suricata --build-info | head -1
 
@@ -72,6 +73,7 @@ jobs:
           ./configure --prefix=/usr/local --disable-gccmarch-native > /dev/null
           make -j"$(nproc)" > /dev/null
           sudo make install-full > /dev/null
+          sudo chmod -R a+rX /usr/local/etc/suricata
           sudo ldconfig
           /usr/local/bin/suricata --build-info | head -1
 
