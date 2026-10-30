@@ -17,10 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install suricata
+      - name: install suricata 7.0.10 (validated baseline)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq suricata git
+          sudo apt-get install -y -qq git
+          curl -sfL -o /tmp/suri.deb http://archive.ubuntu.com/ubuntu/pool/universe/s/suricata/suricata_7.0.10-1_amd64.deb
+          sudo apt-get install -y -qq /tmp/suri.deb
           suricata --build-info | head -2
 
       - name: prepare upstream reference (pinned, read-only consumer)
@@ -44,10 +46,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install suricata
+      - name: install suricata 7.0.10 (validated baseline)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq suricata git
+          sudo apt-get install -y -qq git
+          curl -sfL -o /tmp/suri.deb http://archive.ubuntu.com/ubuntu/pool/universe/s/suricata/suricata_7.0.10-1_amd64.deb
+          sudo apt-get install -y -qq /tmp/suri.deb
           suricata --build-info | head -2
 
       - name: prepare upstream + venv (tool runs for real)

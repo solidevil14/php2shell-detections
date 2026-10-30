@@ -36,6 +36,17 @@ sends 10–20MB single multipart fields.
 | 1100012 | never drop | server-state signal, useful for triage/IR |
 | 1100013 | never drop | cross-flow correlation; 5xx has many innocent causes |
 
+## Version caveat (validated on 7.0.10)
+
+The ruleset is validated on **Suricata 7.0.10** (CI pins this exact version).
+On **7.0.3** (default on Ubuntu 24.04) the response-side cookie-leak rules
+(1100004/1100005) do not fire: empirically on 7.0.3 `distance:N` after a
+content match behaves differently, `isdataat:N,relative` does not match, and
+the response-header buffer normalizes percent-encoding in `Set-Cookie`
+values (the `%7F` literal is absent while the `; path=/` tail is present).
+Upgrade the sensor to >=7.0.10; the request-side rules (1100001-1100003,
+1100007-1100010, 1100014) and 1100012/1100013 work on both versions.
+
 ## Engine lessons (Suricata 7.0.10, empirical)
 
 1. **Oversized single multipart field (~>1MB)**: libhtp treats the field as

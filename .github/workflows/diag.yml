@@ -1,6 +1,5 @@
 name: diag-suricata703
 on:
-  push:
   workflow_dispatch:
 
 jobs:
