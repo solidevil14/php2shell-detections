@@ -1,0 +1,63 @@
+name: rules-regression
+
+# The ruleset is proven on every push: synthetic byte-exact exploit traffic
+# + a false-positive regression set + (optionally) the real php2shell CLI.
+# A failure here means the rules or the toolkit behavior changed.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  synthetic-suite:
+    name: synthetic pcaps + benign regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install suricata
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq suricata git
+          suricata --build-info | head -2
+
+      - name: prepare upstream reference (pinned, read-only consumer)
+        run: |
+          git clone --depth 1 https://github.com/aarsaputra/php2shell.git /tmp/php2shell
+
+      - name: install traffic-generator deps
+        run: |
+          python3 -m pip install --user --quiet curl_cffi bcrypt
+
+      - name: run regression suite
+        env:
+          P2S_REPO: /tmp/php2shell
+        run: |
+          python3 lab/test_matrix.py --skip-real
+
+  real-tool-e2e:
+    name: real php2shell CLI end-to-end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install suricata
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq suricata git
+          suricata --build-info | head -2
+
+      - name: prepare upstream + venv (tool runs for real)
+        run: |
+          git clone --depth 1 https://github.com/aarsaputra/php2shell.git /tmp/php2shell
+          python3 -m venv /tmp/php2shell/.venv
+          /tmp/php2shell/.venv/bin/pip install --quiet -r /tmp/php2shell/requirements.txt
+
+      - name: run full suite (synthetic + benign + real-tool)
+        env:
+          P2S_REPO: /tmp/php2shell
+        run: |
+          python3 lab/test_matrix.py

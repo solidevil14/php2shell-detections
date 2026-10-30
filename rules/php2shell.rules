@@ -1,0 +1,85 @@
+# ============================================================================
+# php2shell (CVE-2026-109619 / CVE-2026-109618) - Suricata detection rules
+# ----------------------------------------------------------------------------
+# Source of truth for signatures: github.com/aarsaputra/php2shell
+#   lib/chain.py    - exploit chain (boundary "S"x17 / "B"x10 / BNDRY12345,
+#                     form fields PHP_SESSION_UPLOAD_PROGRESS + PHPSESSID,
+#                     12MB "big" field, 1001 grooming fields)
+#   lib/oomprobe.py - active scanner (nested-62 key a[b][b]..., boundary "x",
+#                     1/8/20 MiB probes)
+#   lib/memprobe.py - memory_limit probe (boundary P2SMEMPROBE, data p2smem)
+#   lib/detect.py   - upload_progress probe (boundary ----php2shellprobe)
+#   chain.py:parse_cookie / chunk_base_from_cookie / libphp_base_from_cookie
+#                     -> leaked Set-Cookie: PHPSESSID=<990..4096 bytes>; path=/
+#   oomprobe.py:_classify_response -> S1 "Allowed memory size of ... in
+#                     Unknown on line 0" (NOT the post_max_size FP)
+#
+# REQUIRED TUNING (suricata.yaml -> stream -> reassembly -> libhtp):
+#   request-body-limit:  32mb   # chain sends 12MB single multipart fields
+#   response-body-limit: 1mb
+# Rules assume HOME_NET / HTTP_PORTS vars are defined as usual.
+#
+# SID range: 1100001-1100099 (local)
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# TIER A - exploit chain (CVE-2026-109619), highest fidelity
+# ---------------------------------------------------------------------------
+
+# chain "rotate"/stage1-first/stage2-first/stage3-first request:
+# boundary Sx17 + form fields PHP_SESSION_UPLOAD_PROGRESS + PHPSESSID
+alert http any any -> $HOME_NET $HTTP_PORTS (msg:"PHP2SHELL chain groom request (boundary Sx17)"; flow:established,to_server; http.request_body; content:"--SSSSSSSSSSSSSSSSS|0d 0a|Content-Disposition|3a| form-data|3b| name="; classtype:attempted-admin; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619; sid:1100001; rev:2;)
+
+# chain stage1-second/stage2-second/stage3-final request:
+# boundary Bx10 + PHPSESSID as multipart form field (never legit in PHP apps)
+alert http any any -> $HOME_NET $HTTP_PORTS (msg:"PHP2SHELL chain forge request (boundary Bx10 + PHPSESSID form field)"; flow:established,to_server; http.request_body; content:"BBBBBBBBBB"; content:"name=|22|PHPSESSID|22|"; classtype:attempted-admin; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619; sid:1100002; rev:1;)
+
+# chain worker-rotate second request: boundary BNDRY12345 + same two fields
+alert http any any -> $HOME_NET $HTTP_PORTS (msg:"PHP2SHELL chain worker-rotate request (BNDRY12345 + upload_progress + PHPSESSID form fields)"; flow:established,to_server; http.request_body; content:"BNDRY12345"; content:"name=|22|PHP_SESSION_UPLOAD_PROGRESS|22|"; content:"name=|22|PHPSESSID|22|"; classtype:attempted-admin; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619; sid:1100003; rev:1;)
+
+# stage-1 heap leak: leaked PHPSESSID cookie with >=990 bytes before "; path=/"
+alert http $HOME_NET $HTTP_PORTS -> any any (msg:"PHP2SHELL heap-leak response - oversized PHPSESSID Set-Cookie (chunk-base / libphp-base leak)"; flow:established,from_server; http.response_header; content:"Set-Cookie|3a|"; nocase; content:"PHPSESSID="; distance:0; within:12; content:"|3b| path=/"; distance:990; nocase; classtype:bad-unknown; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619; sid:1100004; rev:1;)
+
+# stage-2 libphp-base leak: percent-encoded 0x7F pointer byte early in cookie
+# (leaked pointers live in 0x7F0000000000-0x800000000000, url-encoded %7F)
+alert http $HOME_NET $HTTP_PORTS -> any any (msg:"PHP2SHELL leak cookie - percent-encoded heap pointer in PHPSESSID (stage-2)"; flow:established,from_server; http.response_header; content:"Set-Cookie|3a|"; nocase; content:"PHPSESSID="; distance:0; within:12; content:"%7F"; distance:0; within:120; nocase; classtype:bad-unknown; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619; sid:1100005; rev:1;)
+
+# stage-1 big-field request: multipart >10MB (8+ digit Content-Length)
+# combined with session upload progress field -> effectively zero legit FP.
+# NOTE: libhtp stops inspecting single-field body data deep (>~1MB) in big
+# multipart fields, so this is a same-packet flowbit pair; the setter is
+# placed FIRST in file order so the checker sees the bit within the packet.
+alert http any any -> $HOME_NET $HTTP_PORTS (msg:"PHP2SHELL oversized multipart POST (>10MB) - state only"; flow:established,to_server; http.request_header; pcre:"/Content-Length\x3a ?\d{8,}/i"; flowbits:set,p2s_bigpost; noalert; reference:url,github.com/aarsaputra/php2shell; sid:1100015; rev:1;)
+alert http any any -> $HOME_NET $HTTP_PORTS (msg:"PHP2SHELL oversized multipart POST (>10MB) with upload_progress (stage-1 OOM big-field)"; flow:established,to_server; flowbits:isset,p2s_bigpost; http.request_body; content:"name=|22|PHP_SESSION_UPLOAD_PROGRESS|22|"; classtype:attempted-admin; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619; sid:1100006; rev:2;)
+
+# ---------------------------------------------------------------------------
+# TIER B - active scanner / detection probes (detect/preflight modes)
+# ---------------------------------------------------------------------------
+
+# oomprobe: nested-62 array key: name="a[b][b][b]..." (a + [b] x61)
+alert http any any -> $HOME_NET $HTTP_PORTS (msg:"PHP2SHELL active scan - nested-62 multipart array key (oomprobe)"; flow:established,to_server; http.request_body; content:"name=|22|a[b][b]"; pcre:"/name=\x22a(?:\[b\]){20,}\x22/"; classtype:web-application-attack; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619 CVE-2026-109618; sid:1100007; rev:1;)
+
+# detect.py upload_progress probe: boundary ----php2shellprobe, 1KB body
+alert http any any -> $HOME_NET $HTTP_PORTS (msg:"PHP2SHELL detect probe (upload_progress + PHPSESSID form fields, boundary ----php2shellprobe)"; flow:established,to_server; http.request_body; content:"----php2shellprobe"; content:"name=|22|PHP_SESSION_UPLOAD_PROGRESS|22|"; content:"name=|22|PHPSESSID|22|"; classtype:web-application-attack; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619; sid:1100008; rev:1;)
+
+# memprobe: boundary P2SMEMPROBE + upload_progress data p2smem
+alert http any any -> $HOME_NET $HTTP_PORTS (msg:"PHP2SHELL memory_limit probe (P2SMEMPROBE)"; flow:established,to_server; http.request_body; content:"--P2SMEMPROBE|0d 0a|Content-Disposition|3a| form-data|3b| name=|22|PHP_SESSION_UPLOAD_PROGRESS|22|"; content:"|0d 0a 0d 0a|p2smem|0d 0a|--P2SMEMPROBE"; distance:0; within:64; classtype:web-application-attack; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619; sid:1100009; rev:2;)
+
+# oomprobe transport quirk: quoted single-char boundary="x" on multipart
+alert http any any -> $HOME_NET $HTTP_PORTS (msg:"PHP2SHELL multipart with quoted single-char boundary (oomprobe transport)"; flow:established,to_server; http.request_header; content:"multipart/form-data"; nocase; content:"boundary=|22|x|22|"; nocase; classtype:web-application-attack; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619 CVE-2026-109618; sid:1100010; rev:1;)
+
+# ---------------------------------------------------------------------------
+# TIER C - server-side state (vulnerable responses, worker aborts)
+# ---------------------------------------------------------------------------
+
+# S1 signal: OOM fatal INSIDE the multipart parser - "in Unknown on line 0"
+# (the post_max_size FP never contains "Allowed memory size of")
+alert http $HOME_NET $HTTP_PORTS -> any any (msg:"PHP2SHELL OOM fatal inside multipart parser - target exhibits vulnerable state"; flow:established,from_server; http.response_body; content:"Allowed memory size of"; content:"bytes exhausted"; content:"Unknown"; within:130,relative; threshold:type limit, track by_dst, count 1, seconds 60; classtype:web-application-attack; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619 CVE-2026-109618; sid:1100012; rev:3;)
+
+# xbit setter: any request carrying BOTH upload_progress + PHPSESSID form
+# fields (probe + chain requests) - enables abort correlation below
+alert http any any -> $HOME_NET $HTTP_PORTS (msg:"PHP2SHELL upload_progress + PHPSESSID multipart form fields (probe/chain marker)"; flow:established,to_server; http.request_body; content:"name=|22|PHP_SESSION_UPLOAD_PROGRESS|22|"; content:"name=|22|PHPSESSID|22|"; xbits:set,p2s_probe,track ip_src,expire 300; reference:url,github.com/aarsaputra/php2shell; sid:1100014; rev:2; classtype:web-application-attack;)
+
+# worker abort differential: 5xx (500-empty/502/503/504) to a client that
+# recently sent php2shell probe/chain traffic
+alert http $HOME_NET $HTTP_PORTS -> any any (msg:"PHP2SHELL worker-abort response after php2shell probe (5xx differential)"; flow:established,from_server; http.stat_code; content:"50"; depth:2; xbits:isset,p2s_probe,track ip_dst; classtype:web-application-attack; reference:url,github.com/aarsaputra/php2shell; metadata:cve CVE-2026-109619; sid:1100013; rev:1;)

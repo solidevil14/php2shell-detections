@@ -1,0 +1,27 @@
+# generated artifacts
+*.pcap
+*.pcapng
+recorded.jsonl
+results/
+suricata-lab.yaml
+
+# suricata build artifacts
+*.log
+eve.json
+fast.log
+stats.log
+suricata.log
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# upstream reference clone (test-time only, pinned commit)
+/php2shell/
+
+# rootless suricata bootstrap (local convenience, not part of the repo)
+/rootfs/
+/debs/
+*.deb
+fetch.log
