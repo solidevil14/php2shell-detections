@@ -54,8 +54,14 @@ benign.pcap  (FP regression set)        ->  0 alerts
 | 1100012 | OOM fatal inside the multipart parser (`Unknown` location)¹ | 1 / 1 |
 | 1100013 | worker-abort 5xx differential (xbits correlation) | 4 / 10 |
 | 1100014 | `PHP_SESSION_UPLOAD_PROGRESS` + `PHPSESSID` form-field pairing | 5 / 13 |
+| 1100015 | flowbit setter `p2s_bigpost` (state only, no alert) | – / – |
 
 ¹ `threshold limit 1/60s by_dst` — a 3-probe scanner burst yields one alert.
+
+Counts are from the CI-validated baseline (Suricata 7.0.10). Synthetic-pcap
+counts are deterministic; real-CLI counts vary by ±1–2 per run (the toolkit
+jitters timing and retries stages) — the CI suite asserts minimums, not exact
+equality.
 
 </details>
 
