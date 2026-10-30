@@ -13,17 +13,24 @@ jobs:
   synthetic-suite:
     name: synthetic pcaps + benign regression
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
-      - name: install suricata 7.0.10 (validated baseline)
+      - name: build suricata 7.0.10 from source (validated baseline)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq git
-          curl -sfL -o /tmp/suri.deb http://archive.ubuntu.com/ubuntu/pool/universe/s/suricata/suricata_7.0.10-1_amd64.deb
-          sudo apt-get install -y -qq /tmp/suri.deb
-          suricata --build-info | head -2
+          sudo apt-get install -y -qq git build-essential autoconf automake libtool \
+            pkg-config libpcre2-dev libyaml-dev libpcap-dev libjansson-dev \
+            libmagic-dev liblz4-dev libcap-ng-dev libevent-dev libmaxminddb-dev \
+            cbindgen rustc cargo
+          curl -sfL -o /tmp/suri.tar.gz https://www.openinfosecfoundation.org/download/suricata-7.0.10.tar.gz
+          cd /tmp && tar xzf suri.tar.gz && cd suricata-7.0.10
+          ./configure --prefix=/usr/local --disable-gccmarch-native > /dev/null
+          make -j"$(nproc)" > /dev/null
+          sudo make install > /dev/null
+          sudo ldconfig
+          /usr/local/bin/suricata --build-info | head -1
 
       - name: prepare upstream reference (pinned, read-only consumer)
         run: |
@@ -31,28 +38,37 @@ jobs:
 
       - name: install traffic-generator deps
         run: |
-          python3 -m pip install --user --quiet curl_cffi bcrypt
+          python3 -m pip install --break-system-packages --user --quiet curl_cffi bcrypt || python3 -m pip install --user --quiet curl_cffi bcrypt
 
       - name: run regression suite
         env:
           P2S_REPO: /tmp/php2shell
+          SURICATA_BIN: /usr/local/bin/suricata
+          SURICATA_CONF: /usr/local/etc/suricata/suricata.yaml
         run: |
           python3 lab/test_matrix.py --skip-real
 
   real-tool-e2e:
     name: real php2shell CLI end-to-end
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
-      - name: install suricata 7.0.10 (validated baseline)
+      - name: build suricata 7.0.10 from source (validated baseline)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq git
-          curl -sfL -o /tmp/suri.deb http://archive.ubuntu.com/ubuntu/pool/universe/s/suricata/suricata_7.0.10-1_amd64.deb
-          sudo apt-get install -y -qq /tmp/suri.deb
-          suricata --build-info | head -2
+          sudo apt-get install -y -qq git build-essential autoconf automake libtool \
+            pkg-config libpcre2-dev libyaml-dev libpcap-dev libjansson-dev \
+            libmagic-dev liblz4-dev libcap-ng-dev libevent-dev libmaxminddb-dev \
+            cbindgen rustc cargo
+          curl -sfL -o /tmp/suri.tar.gz https://www.openinfosecfoundation.org/download/suricata-7.0.10.tar.gz
+          cd /tmp && tar xzf suri.tar.gz && cd suricata-7.0.10
+          ./configure --prefix=/usr/local --disable-gccmarch-native > /dev/null
+          make -j"$(nproc)" > /dev/null
+          sudo make install > /dev/null
+          sudo ldconfig
+          /usr/local/bin/suricata --build-info | head -1
 
       - name: prepare upstream + venv (tool runs for real)
         run: |
@@ -63,5 +79,7 @@ jobs:
       - name: run full suite (synthetic + benign + real-tool)
         env:
           P2S_REPO: /tmp/php2shell
+          SURICATA_BIN: /usr/local/bin/suricata
+          SURICATA_CONF: /usr/local/etc/suricata/suricata.yaml
         run: |
           python3 lab/test_matrix.py
