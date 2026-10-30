@@ -1,6 +1,6 @@
 # php2shell-detections
 
-[![rules-regression](https://img.shields.io/github/actions/workflow/status/YOUR_GH_USER/php2shell-detections/test.yml?branch=main&label=rules%20regression)](../../actions)
+[![rules-regression](https://img.shields.io/github/actions/workflow/status/solidevil14/php2shell-detections/test.yml?branch=main&label=rules%20regression)](../../actions)
 
 Suricata 7.x signature set for detecting the **php2shell** toolkit
 (CVE-2026-109619 / CVE-2026-109618 — PHP `session.upload_progress` UAF/OOM
