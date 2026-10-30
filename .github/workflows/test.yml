@@ -28,9 +28,15 @@ jobs:
           cd /tmp && tar xzf suri.tar.gz && cd suricata-7.0.10
           ./configure --prefix=/usr/local --disable-gccmarch-native > /dev/null
           make -j"$(nproc)" > /dev/null
-          sudo make install > /dev/null
+          sudo make install-full > /dev/null
           sudo ldconfig
           /usr/local/bin/suricata --build-info | head -1
+
+      - name: locate installed config
+        run: |
+          CONF=$(find /usr/local/etc /etc -name 'suricata.yaml' 2>/dev/null | head -1)
+          echo "SURICATA_CONF=$CONF" >> "$GITHUB_ENV"
+          echo "config: $CONF"
 
       - name: prepare upstream reference (pinned, read-only consumer)
         run: |
@@ -44,7 +50,6 @@ jobs:
         env:
           P2S_REPO: /tmp/php2shell
           SURICATA_BIN: /usr/local/bin/suricata
-          SURICATA_CONF: /usr/local/etc/suricata/suricata.yaml
         run: |
           python3 lab/test_matrix.py --skip-real
 
@@ -66,9 +71,15 @@ jobs:
           cd /tmp && tar xzf suri.tar.gz && cd suricata-7.0.10
           ./configure --prefix=/usr/local --disable-gccmarch-native > /dev/null
           make -j"$(nproc)" > /dev/null
-          sudo make install > /dev/null
+          sudo make install-full > /dev/null
           sudo ldconfig
           /usr/local/bin/suricata --build-info | head -1
+
+      - name: locate installed config
+        run: |
+          CONF=$(find /usr/local/etc /etc -name 'suricata.yaml' 2>/dev/null | head -1)
+          echo "SURICATA_CONF=$CONF" >> "$GITHUB_ENV"
+          echo "config: $CONF"
 
       - name: prepare upstream + venv (tool runs for real)
         run: |
@@ -80,6 +91,5 @@ jobs:
         env:
           P2S_REPO: /tmp/php2shell
           SURICATA_BIN: /usr/local/bin/suricata
-          SURICATA_CONF: /usr/local/etc/suricata/suricata.yaml
         run: |
           python3 lab/test_matrix.py
