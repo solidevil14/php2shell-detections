@@ -73,6 +73,21 @@ documented per-SID in [`docs/SIGNALS.md`](docs/SIGNALS.md).
 
 ---
 
+## MITRE ATT&CK mapping
+
+Every rule carries native `mitre_attack_phase` metadata (ET-Open convention),
+so SIEM/EDR correlation engines can consume the mappings directly:
+
+| Tier | Techniques |
+|---|---|
+| A — exploit chain (1100001–1100006) | [T1190](https://attack.mitre.org/techniques/T1190/) Exploit Public-Facing Application; T1059.004 Unix Shell on the forge requests (stage-3 carries the `system()` payload) |
+| B — active scanner (1100007–1100010, 1100014) | [T1595.002](https://attack.mitre.org/techniques/T1595/002/) Vulnerability Scanning |
+| C — target state (1100012–1100013) | T1190 (server-side evidence of exploitation) |
+
+Per-SID mappings are in the [SID registry](docs/SIGNALS.md#sid-registry).
+
+---
+
 ## How the harness works
 
 ```
