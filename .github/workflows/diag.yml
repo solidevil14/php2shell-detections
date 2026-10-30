@@ -1,0 +1,61 @@
+name: diag-suricata703
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  diag7:
+    name: diagnose cookie rules on runner suricata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      P2S_REPO: /tmp/php2shell
+    steps:
+      - uses: actions/checkout@v4
+      - name: install suricata
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq suricata git
+          suricata --build-info | head -1
+      - name: prep upstream + deps
+        run: |
+          git clone --depth 1 https://github.com/aarsaputra/php2shell.git /tmp/php2shell
+          python3 -m pip install --break-system-packages --user --quiet curl_cffi bcrypt || python3 -m pip install --user --quiet curl_cffi bcrypt
+      - name: generate pcaps + diag rules + run variants
+        run: |
+          set -oe pipefail
+          OUT_DIR=/tmp/gen_pcaps python3 lab/gen_traffic.py
+          python3 lab/mini_test.py
+          mkdir -p /tmp/diag
+          cat > /tmp/diag/diag.rules <<'RULES_EOF'
+          alert http any any -> $HOME_NET $HTTP_PORTS (msg:"H0 control request body"; flow:established,to_server; http.request_body; content:"--P2SMEMPROBE"; classtype:bad-unknown; sid:5000001; rev:1;)
+          alert http $HOME_NET $HTTP_PORTS -> any any (msg:"H1 resp_header Server"; flow:established,from_server; http.response_header; content:"Server|3a| Apache"; classtype:bad-unknown; sid:5000002; rev:1;)
+          alert http $HOME_NET $HTTP_PORTS -> any any (msg:"H2 Set-Cookie anywhere"; flow:established,from_server; http.response_header; content:"Set-Cookie|3a|"; nocase; classtype:bad-unknown; sid:5000003; rev:1;)
+          alert http $HOME_NET $HTTP_PORTS -> any any (msg:"H3 full literal"; flow:established,from_server; http.response_header; content:"Set-Cookie|3a| PHPSESSID="; nocase; classtype:bad-unknown; sid:5000004; rev:1;)
+          alert http $HOME_NET $HTTP_PORTS -> any any (msg:"H4 dist990"; flow:established,from_server; http.response_header; content:"Set-Cookie|3a| PHPSESSID="; nocase; content:"|3b| path=/"; distance:990; nocase; classtype:bad-unknown; sid:5000005; rev:1;)
+          alert http $HOME_NET $HTTP_PORTS -> any any (msg:"H5 within12k"; flow:established,from_server; http.response_header; content:"Set-Cookie|3a| PHPSESSID="; nocase; content:"|3b| path=/"; within:12000; nocase; classtype:bad-unknown; sid:5000006; rev:1;)
+          alert http $HOME_NET $HTTP_PORTS -> any any (msg:"H6 isdataat990"; flow:established,from_server; http.response_header; content:"Set-Cookie|3a| PHPSESSID="; nocase; isdataat:990,relative; classtype:bad-unknown; sid:5000007; rev:1;)
+          alert http $HOME_NET $HTTP_PORTS -> any any (msg:"H7 pct7f bare"; flow:established,from_server; http.response_header; content:"%7F"; nocase; classtype:bad-unknown; sid:5000008; rev:1;)
+          alert http $HOME_NET $HTTP_PORTS -> any any (msg:"H8 http.header dir-mix"; flow:established,from_server; http.header; content:"Set-Cookie|3a|"; nocase; classtype:bad-unknown; sid:5000009; rev:1;)
+          RULES_EOF
+          LAB_CONF_OUT=/tmp/diag/lab.yaml python3 lab/make_lab_config.py
+          for pc in /tmp/gen_pcaps/attack.pcap lab/mini.pcap; do
+            out=/tmp/diag/out_$(basename "$pc" .pcap)
+            rm -rf "$out"
+            mkdir -p "$out"
+            suricata -c /tmp/diag/lab.yaml -S /tmp/diag/diag.rules -r "$pc" -l "$out" -k none 2>&1 | tail -2
+            echo "=== RESULTS for $pc ==="
+            python3 - "$out/eve.json" <<'PYEOF'
+          import json, collections, sys
+          c = collections.Counter()
+          try:
+              for line in open(sys.argv[1]):
+                  e = json.loads(line)
+                  if e.get("event_type") == "alert":
+                      c[e["alert"]["signature"][:36]] += 1
+          except FileNotFoundError:
+              print("NO EVE FILE")
+          for k, v in sorted(c.items()):
+              print(f"  {v:3d}  {k}")
+          PYEOF
+          done
